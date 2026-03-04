@@ -311,6 +311,16 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);
 </head>
 <body>
 
+<!-- LOADING OVERLAY -->
+<div id="loadingOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,17,23,.9);
+  z-index:999;flex-direction:column;align-items:center;justify-content:center;gap:16px">
+  <div style="width:44px;height:44px;border:3px solid var(--surface3);border-top-color:var(--accent);
+    border-radius:50%;animation:spin .8s linear infinite"></div>
+  <div id="loadingMsg" style="font-size:.9rem;color:var(--muted);font-weight:600">Yükleniyor...</div>
+</div>
+
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
 <div class="topbar">
   <div class="logo">Stok<span>Panel</span></div>
   <div class="topbar-right">
@@ -663,43 +673,42 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);
 
 <script>
 // ============================================================
-// DATA — Excel şablonu yapısı (Companies/Products/Suppliers/
-//        StockMovements/Warehouses/Users)
+// SUPABASE BAĞLANTISI
+// ============================================================
+const SB_URL = 'https://yvtckiciywxmywnupfgb.supabase.co';
+const SB_KEY = 'sb_publishable_ybPJjoGREaFZ_IixCsj3Vw_3wkd1-gO';
+
+async function sbFetch(table, method='GET', body=null, filter=''){
+  const url = `${SB_URL}/rest/v1/${table}${filter}`;
+  const res = await fetch(url, {
+    method,
+    headers:{
+      'apikey': SB_KEY,
+      'Authorization': `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': method==='POST' ? 'return=representation' : ''
+    },
+    body: body ? JSON.stringify(body) : null
+  });
+  if(!res.ok){ console.error('Supabase hata:', await res.text()); return null; }
+  if(method==='DELETE' || res.status===204) return true;
+  return res.json();
+}
+
+// Yükleme göstergesi
+function showLoading(msg='Yükleniyor...'){
+  document.getElementById('loadingOverlay').style.display='flex';
+  document.getElementById('loadingMsg').textContent=msg;
+}
+function hideLoading(){ document.getElementById('loadingOverlay').style.display='none'; }
+
+// ============================================================
+// DATA — Supabase'den gelecek, başlangıçta boş
 // ============================================================
 let movType='In';
-
-let suppliers=[
-  {id:'S001',name:'TechDistrib A.Ş.',email:'info@techdistrib.com',phone:'+90 212 555 01 01',country:'Türkiye',cat:'Elektronik',e:'💻',siparis:31},
-  {id:'S002',name:'ABC Tedarik Ltd.',email:'satis@abctedarik.com',phone:'+90 216 444 02 02',country:'Türkiye',cat:'Genel Malzeme',e:'🏭',siparis:24},
-  {id:'S003',name:'Kırtasiye Merkezi',email:'orders@kirtasiye.com',phone:'+90 312 333 03 03',country:'Türkiye',cat:'Kırtasiye',e:'✏️',siparis:18},
-  {id:'S004',name:'Global Tedarik',email:'global@tedarik.net',phone:'+90 232 222 04 04',country:'Türkiye',cat:'Mobilya',e:'🌍',siparis:9},
-  {id:'S005',name:'Gıda Toptancısı',email:'siparis@gidatop.com',phone:'+90 850 111 05 05',country:'Türkiye',cat:'Gıda',e:'🛒',siparis:12},
-  {id:'S006',name:'EuroSupply GmbH',email:'order@eurosupply.de',phone:'+49 30 555 66 77',country:'Almanya',cat:'Genel Malzeme',e:'🇩🇪',siparis:7},
-];
-
-let products=[
-  {id:'P001',name:"A4 Kağıt 500'lü",sku:'KAG-001',kat:'Kırtasiye',cost:45,sell:89,stok:8,min:20,sid:'S003',depo:'Ana Depo',e:'📄'},
-  {id:'P002',name:'Toner Kartuş HP',sku:'TON-032',kat:'Elektronik',cost:280,sell:450,stok:3,min:5,sid:'S001',depo:'Ana Depo',e:'🖨️'},
-  {id:'P003',name:'Dezenfektan 5L',sku:'TEM-011',kat:'Temizlik',cost:95,sell:175,stok:2,min:10,sid:'S002',depo:'İstanbul Depo',e:'🧴'},
-  {id:'P004',name:'Ofis Koltuğu',sku:'MOB-007',kat:'Mobilya',cost:1200,sell:2499,stok:15,min:3,sid:'S004',depo:'Ankara Depo',e:'🪑'},
-  {id:'P005',name:'USB-C Kablo 1m',sku:'ELK-044',kat:'Elektronik',cost:35,sell:79,stok:42,min:10,sid:'S001',depo:'Ana Depo',e:'🔌'},
-  {id:'P006',name:'Zımba Teli No:10',sku:'KAG-008',kat:'Kırtasiye',cost:8,sell:18,stok:120,min:30,sid:'S003',depo:'Ana Depo',e:'📎'},
-  {id:'P007',name:'Filtre Kahve 250g',sku:'GDA-003',kat:'Gıda',cost:55,sell:99,stok:7,min:5,sid:'S005',depo:'Ana Depo',e:'☕'},
-  {id:'P008',name:'HDMI Kablo 2m',sku:'ELK-021',kat:'Elektronik',cost:45,sell:99,stok:18,min:5,sid:'S001',depo:'İzmir Depo',e:'🖥️'},
-  {id:'P009',name:'Laptop Stand',sku:'ELK-099',kat:'Elektronik',cost:120,sell:249,stok:4,min:8,sid:'S006',depo:'Ana Depo',e:'💻'},
-  {id:'P010',name:'Beyaz Tahta Kalemi',sku:'KAG-022',kat:'Kırtasiye',cost:12,sell:25,stok:35,min:20,sid:'S003',depo:'Ana Depo',e:'✏️'},
-];
-
-let movements=[
-  {id:'M001',pid:'P001',type:'Out',qty:12,sid:'S002',depo:'Ana Depo',date:'2025-03-04 09:15',note:'Toplantı odası'},
-  {id:'M002',pid:'P005',type:'In',qty:50,sid:'S001',depo:'Ana Depo',date:'2025-03-04 10:30',note:'Fatura: TDA-2891'},
-  {id:'M003',pid:'P003',type:'Out',qty:8,sid:'S002',depo:'İstanbul Depo',date:'2025-03-03 14:20',note:'Temizlik servisi'},
-  {id:'M004',pid:'P002',type:'Out',qty:2,sid:'S001',depo:'Ana Depo',date:'2025-03-03 11:45',note:''},
-  {id:'M005',pid:'P006',type:'In',qty:200,sid:'S003',depo:'Ana Depo',date:'2025-03-02 16:00',note:'Toplu sipariş'},
-  {id:'M006',pid:'P007',type:'Out',qty:3,sid:'S005',depo:'Ana Depo',date:'2025-03-01 08:30',note:'Mutfak'},
-  {id:'M007',pid:'P008',type:'In',qty:10,sid:'S001',depo:'İzmir Depo',date:'2025-02-28 13:15',note:'Fatura: TDA-2870'},
-  {id:'M008',pid:'P009',type:'In',qty:5,sid:'S006',depo:'Ana Depo',date:'2025-02-27 10:00',note:'Yeni stok'},
-];
+let suppliers=[];
+let products=[];
+let movements=[];
 
 // ============================================================
 const catE={Elektronik:'💡',Kırtasiye:'📄',Gıda:'🥫',Temizlik:'🧹',
@@ -707,11 +716,16 @@ const catE={Elektronik:'💡',Kırtasiye:'📄',Gıda:'🥫',Temizlik:'🧹',
 const catSupE={'Genel Malzeme':'🏭',Elektronik:'💻',Kırtasiye:'✏️',
   Gıda:'🛒',Temizlik:'🧹',Mobilya:'🪑',Tekstil:'👕',Diğer:'🏢'};
 
+// Supabase satırlarını uygulama formatına çevir
+function mapSupplier(r){ return {id:r.id,name:r.name,email:r.email||'',phone:r.phone||'',country:r.country||'Türkiye',cat:r.category||'Diğer',e:r.emoji||'🏢',siparis:r.orders_count||0}; }
+function mapProduct(r){ return {id:r.id,name:r.name,sku:r.sku||'',kat:r.category||'Diğer',cost:r.cost_price||0,sell:r.sell_price||0,stok:r.stock||0,min:r.min_stock||10,sid:r.supplier_id||'',depo:r.warehouse||'Ana Depo',e:r.emoji||'📦'}; }
+function mapMovement(r){ return {id:r.id,pid:r.product_id,type:r.type,qty:r.quantity,sid:r.supplier_id||'',depo:r.warehouse||'Ana Depo',date:r.created_at?r.created_at.replace('T',' ').slice(0,16):nowStr(),note:r.note||''}; }
+
 function gp(id){return products.find(x=>x.id===id)}
 function gs(id){return suppliers.find(x=>x.id===id)}
 function nowStr(){const d=new Date();return`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`}
 function p2(n){return String(n).padStart(2,'0')}
-function fdt(s){const[d,t]=s.split(' ');return d.split('-').reverse().join('.')+' '+t}
+function fdt(s){try{const[d,t]=s.split(' ');return d.split('-').reverse().join('.')+' '+t}catch{return s}}
 function uid(){return Date.now().toString(36).toUpperCase()}
 
 function stockSt(p){
@@ -724,9 +738,21 @@ function stockSt(p){
 function bclr(p){const r=p.stok/p.min;return r<0.4?'#ef4444':r<=1?'#f59e0b':'#10b981'}
 
 // ============================================================
-// RENDER ALL
+// RENDER ALL — Supabase'den veri çek
 // ============================================================
-function renderAll(){
+async function renderAll(){
+  showLoading('Veriler yükleniyor...');
+  try {
+    const [supData, prodData, movData] = await Promise.all([
+      sbFetch('suppliers','GET',null,'?order=created_at.desc'),
+      sbFetch('products','GET',null,'?order=created_at.desc'),
+      sbFetch('movements','GET',null,'?order=created_at.desc&limit=100'),
+    ]);
+    if(supData) suppliers = supData.map(mapSupplier);
+    if(prodData) products = prodData.map(mapProduct);
+    if(movData) movements = movData.map(mapMovement);
+  } catch(e){ console.error(e); showToast('❌','Bağlantı hatası!'); }
+  hideLoading();
   updateGreet();renderStats();renderDashMov();
   renderProds();renderMovFull();renderSuppliers();renderAlerts();
   fillSelects();
@@ -948,7 +974,7 @@ function qMov(pid,type){
 // ============================================================
 // SAVE: ÜRÜN
 // ============================================================
-function saveProduct(){
+async function saveProduct(){
   const name=document.getElementById('uAd').value.trim();
   if(!name){showToast('⚠️','Ürün adı boş olamaz!');return}
   const kat=document.getElementById('uKat').value;
@@ -956,42 +982,50 @@ function saveProduct(){
   const min=parseInt(document.getElementById('uMin').value)||10;
   const cost=parseFloat(document.getElementById('uCost').value)||0;
   const sell=parseFloat(document.getElementById('uSell').value)||0;
-  const sid=document.getElementById('uFirma').value;
+  const sid=document.getElementById('uFirma').value||null;
   const depo=document.getElementById('uDepo').value;
   const sku=document.getElementById('uSku').value.trim()||('SKU-'+uid());
 
-  const np={id:'P'+uid(),name,sku,kat,cost,sell,stok,min,sid,depo,e:catE[kat]||'📦'};
-  products.unshift(np);
-
-  if(stok>0){
-    movements.unshift({id:'M'+uid(),pid:np.id,type:'In',qty:stok,sid,depo,date:nowStr(),note:'Başlangıç stoğu'});
+  showLoading('Ürün kaydediliyor...');
+  const res = await sbFetch('products','POST',{
+    name, sku, category:kat,
+    cost_price:cost, sell_price:sell,
+    stock:stok, min_stock:min,
+    supplier_id:sid||null,
+    warehouse:depo,
+    emoji:catE[kat]||'📦'
+  });
+  if(res && res[0] && stok>0){
+    await sbFetch('movements','POST',{
+      product_id:res[0].id, type:'In', quantity:stok,
+      supplier_id:sid||null, warehouse:depo, note:'Başlangıç stoğu'
+    });
   }
-
   closeModal('mUrun');
   ['uAd','uSku','uCost','uSell','uStok','uMin'].forEach(id=>document.getElementById(id).value='');
-  renderAll();
+  await renderAll();
   showToast('✅',`"${name}" ürünü eklendi!`);
 }
 
 // ============================================================
 // SAVE: FİRMA
 // ============================================================
-function saveFirma(){
+async function saveFirma(){
   const name=document.getElementById('fAd').value.trim();
   if(!name){showToast('⚠️','Firma adı boş olamaz!');return}
-  suppliers.push({
-    id:'S'+uid(),
+  showLoading('Firma kaydediliyor...');
+  await sbFetch('suppliers','POST',{
     name,
-    email:document.getElementById('fEmail').value.trim(),
-    phone:document.getElementById('fTel').value.trim(),
+    email:document.getElementById('fEmail').value.trim()||null,
+    phone:document.getElementById('fTel').value.trim()||null,
     country:document.getElementById('fUlke').value,
-    cat:document.getElementById('fKat').value,
-    e:catSupE[document.getElementById('fKat').value]||'🏢',
-    siparis:0
+    category:document.getElementById('fKat').value,
+    emoji:catSupE[document.getElementById('fKat').value]||'🏢',
+    orders_count:0
   });
   closeModal('mFirma');
   ['fAd','fEmail','fTel','fNot'].forEach(id=>document.getElementById(id).value='');
-  renderAll();
+  await renderAll();
   showToast('✅',`"${name}" firması eklendi!`);
   gotoPage('firmalar');
 }
@@ -999,25 +1033,33 @@ function saveFirma(){
 // ============================================================
 // SAVE: HAREKET
 // ============================================================
-function saveMov(){
+async function saveMov(){
   const pid=document.getElementById('hUrun').value;
   const qty=parseInt(document.getElementById('hMiktar').value)||0;
   if(!qty||qty<1){showToast('⚠️','Geçerli miktar girin!');return}
   const p=products.find(x=>x.id===pid);
   if(!p){showToast('❌','Ürün bulunamadı!');return}
   if(movType==='Out'&&qty>p.stok){showToast('❌',`Yetersiz stok! Mevcut: ${p.stok}`);return}
-  if(movType==='In')p.stok+=qty;
-  else p.stok-=qty;
-  movements.unshift({
-    id:'M'+uid(),pid,type:movType,qty,
-    sid:document.getElementById('hFirma').value,
-    depo:document.getElementById('hDepo').value,
-    date:nowStr(),note:document.getElementById('hNot').value
+
+  showLoading('Hareket kaydediliyor...');
+  const newStock = movType==='In' ? p.stok+qty : p.stok-qty;
+
+  // Stok miktarını güncelle
+  await sbFetch('products','PATCH',{stock:newStock},`?id=eq.${pid}`);
+  // Hareketi kaydet
+  await sbFetch('movements','POST',{
+    product_id:pid,
+    type:movType,
+    quantity:qty,
+    supplier_id:document.getElementById('hFirma').value||null,
+    warehouse:document.getElementById('hDepo').value,
+    note:document.getElementById('hNot').value||null
   });
+
   closeModal('mHareket');
   document.getElementById('hMiktar').value='';
   document.getElementById('hNot').value='';
-  renderAll();
+  await renderAll();
   showToast(movType==='In'?'📥':'📤',`${p.name}: ${movType==='In'?'+':'-'}${qty} adet`);
 }
 
