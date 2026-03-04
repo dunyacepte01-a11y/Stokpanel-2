@@ -7,11 +7,37 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f1117">
-<link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon-192.png">
 <title>StokPanel</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
+/* AUTH SCREEN */
+.auth-screen{position:fixed;inset:0;background:var(--bg);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px}
+.auth-logo{font-size:2rem;font-weight:900;letter-spacing:-1px;margin-bottom:8px}.auth-logo span{color:var(--accent)}
+.auth-sub{font-size:.85rem;color:var(--muted);margin-bottom:40px;text-align:center}
+.auth-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:28px 24px;width:100%;max-width:380px}
+.auth-tabs{display:flex;gap:0;background:var(--surface2);border-radius:10px;padding:4px;margin-bottom:24px}
+.auth-tab{flex:1;padding:9px;border-radius:8px;text-align:center;font-size:.85rem;font-weight:700;color:var(--muted);cursor:pointer;transition:all .2s}
+.auth-tab.active{background:var(--accent);color:#fff}
+.auth-err{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 14px;font-size:.8rem;color:#f87171;margin-bottom:14px;display:none}
+.auth-btn{width:100%;padding:14px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-family:"Outfit",sans-serif;font-size:.95rem;font-weight:700;cursor:pointer;margin-top:8px;transition:opacity .2s}
+.auth-btn:active{opacity:.85}
+.auth-btn:disabled{opacity:.5;cursor:not-allowed}
+.auth-divider{text-align:center;color:var(--muted);font-size:.78rem;margin:16px 0;position:relative}
+.auth-divider::before{content:"";position:absolute;left:0;top:50%;width:40%;height:1px;background:var(--border)}
+.auth-divider::after{content:"";position:absolute;right:0;top:50%;width:40%;height:1px;background:var(--border)}
+/* LOADING */
+.loading-overlay{position:fixed;inset:0;background:rgba(15,17,23,.92);z-index:999;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+.spin{width:44px;height:44px;border:3px solid var(--surface3);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* BARKOD */
+.barcode-overlay{position:fixed;inset:0;background:#000;z-index:300;display:none;flex-direction:column}
+.barcode-overlay.open{display:flex}
+.barcode-header{padding:16px;display:flex;align-items:center;gap:12px;position:absolute;top:0;left:0;right:0;z-index:10;background:linear-gradient(to bottom,rgba(0,0,0,.8),transparent)}
+.barcode-close{width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,.15);border:none;color:#fff;font-size:1.2rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+#barcodeVideo{width:100%;height:100%;object-fit:cover}
+.barcode-aim{position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);width:240px;height:120px;border:3px solid var(--accent);border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,.5)}
+.barcode-hint{position:absolute;bottom:80px;left:0;right:0;text-align:center;color:#fff;font-size:.85rem;font-weight:600;opacity:.8}
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 :root{
@@ -311,16 +337,35 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);
 </head>
 <body>
 
-<!-- LOADING OVERLAY -->
-<div id="loadingOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,17,23,.9);
-  z-index:999;flex-direction:column;align-items:center;justify-content:center;gap:16px">
-  <div style="width:44px;height:44px;border:3px solid var(--surface3);border-top-color:var(--accent);
-    border-radius:50%;animation:spin .8s linear infinite"></div>
-  <div id="loadingMsg" style="font-size:.9rem;color:var(--muted);font-weight:600">Yükleniyor...</div>
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay"><div class="spin"></div><div id="loadingMsg" style="font-size:.9rem;color:var(--muted);font-weight:600">Yükleniyor...</div></div>
+
+<!-- AUTH SCREEN -->
+<div class="auth-screen" id="authScreen">
+  <div class="auth-logo">Stok<span>Panel</span></div>
+  <div class="auth-sub">Stok yönetiminizi kolaylaştırın</div>
+  <div class="auth-card">
+    <div class="auth-tabs"><div class="auth-tab active" id="tabGiris" onclick="switchAuthTab('giris')">Giriş Yap</div><div class="auth-tab" id="tabKayit" onclick="switchAuthTab('kayit')">Kayıt Ol</div></div>
+    <div class="auth-err" id="authErr"></div>
+    <div class="field"><label class="flbl">E-posta</label><input class="finput" id="authEmail" type="email" placeholder="ornek@mail.com" autocomplete="email"></div>
+    <div class="field"><label class="flbl">Şifre</label><input class="finput" id="authPass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+    <div class="field" id="passConfirmField" style="display:none"><label class="flbl">Şifre Tekrar</label><input class="finput" id="authPass2" type="password" placeholder="••••••••"></div>
+    <div class="field" id="companyField" style="display:none"><label class="flbl">İşletme Adı</label><input class="finput" id="authCompany" type="text" placeholder="Firmanızın adı"></div>
+    <button class="auth-btn" id="authBtn" onclick="doAuth()">Giriş Yap</button>
+    <div style="text-align:center;margin-top:16px;font-size:.78rem;color:var(--muted)" id="authSwitch">Hesabın yok mu? <span style="color:var(--accent);cursor:pointer;font-weight:700" onclick="switchAuthTab('kayit')">Kayıt Ol</span></div>
+  </div>
 </div>
 
-<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-
+<!-- BARKOD OKUYUCU -->
+<div class="barcode-overlay" id="barcodeOverlay">
+  <div class="barcode-header">
+    <button class="barcode-close" onclick="closeBarcode()">✕</button>
+    <span style="color:#fff;font-weight:700;font-size:.95rem" id="barcodeTitle">Barkod Okut</span>
+  </div>
+  <video id="barcodeVideo" autoplay playsinline muted></video>
+  <div class="barcode-aim"></div>
+  <div class="barcode-hint">📦 Barkodu çerçeve içine getirin</div>
+</div>
 <div class="topbar">
   <div class="logo">Stok<span>Panel</span></div>
   <div class="topbar-right">
@@ -404,7 +449,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);
     </div>
     <div class="mgroup">
       <div class="mitem" onclick="openModal('mPlan')"><div class="mico" style="background:rgba(139,92,246,.15)">👑</div><div class="mtxt"><div class="mlbl">Pro Plan — Aktif</div><div class="msub">₺149/ay · Sınırsız kullanım</div></div><span class="marr">›</span></div>
-      <div class="mitem" onclick="showToast('👋','Çıkış yapıldı!')"><div class="mico" style="background:rgba(239,68,68,.15)">🚪</div><div class="mtxt"><div class="mlbl">Çıkış Yap</div></div><span class="marr">›</span></div>
+      <div class="mitem" onclick="signOut()"><div class="mico" style="background:rgba(239,68,68,.15)">🚪</div><div class="mtxt"><div class="mlbl">Çıkış Yap</div></div><span class="marr">›</span></div>
     </div>
     <div style="text-align:center;padding:20px;color:var(--muted);font-size:.75rem">StokPanel v2.0 · Türkiye 🇹🇷</div>
   </div>
@@ -443,6 +488,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);
 <div class="modal">
   <div class="mhandle"></div>
   <div class="mttl">📦 Yeni Ürün Ekle</div>
+    <div style="display:flex;gap:10px;margin-bottom:14px"><button class="auth-btn" style="margin:0;padding:11px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;flex:1;font-size:.82rem" onclick="openBarcode('uSku','uAd')">📷 Barkod Okut</button></div>
   <div class="field"><label class="flbl">Ürün Adı *</label><input class="finput" id="uAd" type="text" placeholder="örn. A4 Kağıt 500'lü"></div>
   <div class="frow">
     <div><label class="flbl">SKU / Kod</label><input class="finput" id="uSku" type="text" placeholder="KAG-001"></div>
@@ -512,6 +558,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);
 <div class="modal">
   <div class="mhandle"></div>
   <div class="mttl">🔄 Stok Hareketi</div>
+    <div style="margin-bottom:14px"><button class="auth-btn" style="margin:0;padding:11px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;width:100%;font-size:.82rem" onclick="openBarcodeForMov()">📷 Barkodla Ürün Bul</button></div>
   <label class="flbl">Hareket Türü</label>
   <div class="typesel">
     <div class="topt sel-in" id="tIn" onclick="selType('In')"><span class="tico">📥</span><span class="tlbl">Giriş</span></div>
@@ -673,42 +720,43 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);
 
 <script>
 // ============================================================
-// SUPABASE BAĞLANTISI
-// ============================================================
-const SB_URL = 'https://yvtckiciywxmywnupfgb.supabase.co';
-const SB_KEY = 'sb_publishable_ybPJjoGREaFZ_IixCsj3Vw_3wkd1-gO';
-
-async function sbFetch(table, method='GET', body=null, filter=''){
-  const url = `${SB_URL}/rest/v1/${table}${filter}`;
-  const res = await fetch(url, {
-    method,
-    headers:{
-      'apikey': SB_KEY,
-      'Authorization': `Bearer ${SB_KEY}`,
-      'Content-Type': 'application/json',
-      'Prefer': method==='POST' ? 'return=representation' : ''
-    },
-    body: body ? JSON.stringify(body) : null
-  });
-  if(!res.ok){ console.error('Supabase hata:', await res.text()); return null; }
-  if(method==='DELETE' || res.status===204) return true;
-  return res.json();
-}
-
-// Yükleme göstergesi
-function showLoading(msg='Yükleniyor...'){
-  document.getElementById('loadingOverlay').style.display='flex';
-  document.getElementById('loadingMsg').textContent=msg;
-}
-function hideLoading(){ document.getElementById('loadingOverlay').style.display='none'; }
-
-// ============================================================
-// DATA — Supabase'den gelecek, başlangıçta boş
+// DATA — Excel şablonu yapısı (Companies/Products/Suppliers/
+//        StockMovements/Warehouses/Users)
 // ============================================================
 let movType='In';
-let suppliers=[];
-let products=[];
-let movements=[];
+
+let suppliers=[
+  {id:'S001',name:'TechDistrib A.Ş.',email:'info@techdistrib.com',phone:'+90 212 555 01 01',country:'Türkiye',cat:'Elektronik',e:'💻',siparis:31},
+  {id:'S002',name:'ABC Tedarik Ltd.',email:'satis@abctedarik.com',phone:'+90 216 444 02 02',country:'Türkiye',cat:'Genel Malzeme',e:'🏭',siparis:24},
+  {id:'S003',name:'Kırtasiye Merkezi',email:'orders@kirtasiye.com',phone:'+90 312 333 03 03',country:'Türkiye',cat:'Kırtasiye',e:'✏️',siparis:18},
+  {id:'S004',name:'Global Tedarik',email:'global@tedarik.net',phone:'+90 232 222 04 04',country:'Türkiye',cat:'Mobilya',e:'🌍',siparis:9},
+  {id:'S005',name:'Gıda Toptancısı',email:'siparis@gidatop.com',phone:'+90 850 111 05 05',country:'Türkiye',cat:'Gıda',e:'🛒',siparis:12},
+  {id:'S006',name:'EuroSupply GmbH',email:'order@eurosupply.de',phone:'+49 30 555 66 77',country:'Almanya',cat:'Genel Malzeme',e:'🇩🇪',siparis:7},
+];
+
+let products=[
+  {id:'P001',name:"A4 Kağıt 500'lü",sku:'KAG-001',kat:'Kırtasiye',cost:45,sell:89,stok:8,min:20,sid:'S003',depo:'Ana Depo',e:'📄'},
+  {id:'P002',name:'Toner Kartuş HP',sku:'TON-032',kat:'Elektronik',cost:280,sell:450,stok:3,min:5,sid:'S001',depo:'Ana Depo',e:'🖨️'},
+  {id:'P003',name:'Dezenfektan 5L',sku:'TEM-011',kat:'Temizlik',cost:95,sell:175,stok:2,min:10,sid:'S002',depo:'İstanbul Depo',e:'🧴'},
+  {id:'P004',name:'Ofis Koltuğu',sku:'MOB-007',kat:'Mobilya',cost:1200,sell:2499,stok:15,min:3,sid:'S004',depo:'Ankara Depo',e:'🪑'},
+  {id:'P005',name:'USB-C Kablo 1m',sku:'ELK-044',kat:'Elektronik',cost:35,sell:79,stok:42,min:10,sid:'S001',depo:'Ana Depo',e:'🔌'},
+  {id:'P006',name:'Zımba Teli No:10',sku:'KAG-008',kat:'Kırtasiye',cost:8,sell:18,stok:120,min:30,sid:'S003',depo:'Ana Depo',e:'📎'},
+  {id:'P007',name:'Filtre Kahve 250g',sku:'GDA-003',kat:'Gıda',cost:55,sell:99,stok:7,min:5,sid:'S005',depo:'Ana Depo',e:'☕'},
+  {id:'P008',name:'HDMI Kablo 2m',sku:'ELK-021',kat:'Elektronik',cost:45,sell:99,stok:18,min:5,sid:'S001',depo:'İzmir Depo',e:'🖥️'},
+  {id:'P009',name:'Laptop Stand',sku:'ELK-099',kat:'Elektronik',cost:120,sell:249,stok:4,min:8,sid:'S006',depo:'Ana Depo',e:'💻'},
+  {id:'P010',name:'Beyaz Tahta Kalemi',sku:'KAG-022',kat:'Kırtasiye',cost:12,sell:25,stok:35,min:20,sid:'S003',depo:'Ana Depo',e:'✏️'},
+];
+
+let movements=[
+  {id:'M001',pid:'P001',type:'Out',qty:12,sid:'S002',depo:'Ana Depo',date:'2025-03-04 09:15',note:'Toplantı odası'},
+  {id:'M002',pid:'P005',type:'In',qty:50,sid:'S001',depo:'Ana Depo',date:'2025-03-04 10:30',note:'Fatura: TDA-2891'},
+  {id:'M003',pid:'P003',type:'Out',qty:8,sid:'S002',depo:'İstanbul Depo',date:'2025-03-03 14:20',note:'Temizlik servisi'},
+  {id:'M004',pid:'P002',type:'Out',qty:2,sid:'S001',depo:'Ana Depo',date:'2025-03-03 11:45',note:''},
+  {id:'M005',pid:'P006',type:'In',qty:200,sid:'S003',depo:'Ana Depo',date:'2025-03-02 16:00',note:'Toplu sipariş'},
+  {id:'M006',pid:'P007',type:'Out',qty:3,sid:'S005',depo:'Ana Depo',date:'2025-03-01 08:30',note:'Mutfak'},
+  {id:'M007',pid:'P008',type:'In',qty:10,sid:'S001',depo:'İzmir Depo',date:'2025-02-28 13:15',note:'Fatura: TDA-2870'},
+  {id:'M008',pid:'P009',type:'In',qty:5,sid:'S006',depo:'Ana Depo',date:'2025-02-27 10:00',note:'Yeni stok'},
+];
 
 // ============================================================
 const catE={Elektronik:'💡',Kırtasiye:'📄',Gıda:'🥫',Temizlik:'🧹',
@@ -716,16 +764,11 @@ const catE={Elektronik:'💡',Kırtasiye:'📄',Gıda:'🥫',Temizlik:'🧹',
 const catSupE={'Genel Malzeme':'🏭',Elektronik:'💻',Kırtasiye:'✏️',
   Gıda:'🛒',Temizlik:'🧹',Mobilya:'🪑',Tekstil:'👕',Diğer:'🏢'};
 
-// Supabase satırlarını uygulama formatına çevir
-function mapSupplier(r){ return {id:r.id,name:r.name,email:r.email||'',phone:r.phone||'',country:r.country||'Türkiye',cat:r.category||'Diğer',e:r.emoji||'🏢',siparis:r.orders_count||0}; }
-function mapProduct(r){ return {id:r.id,name:r.name,sku:r.sku||'',kat:r.category||'Diğer',cost:r.cost_price||0,sell:r.sell_price||0,stok:r.stock||0,min:r.min_stock||10,sid:r.supplier_id||'',depo:r.warehouse||'Ana Depo',e:r.emoji||'📦'}; }
-function mapMovement(r){ return {id:r.id,pid:r.product_id,type:r.type,qty:r.quantity,sid:r.supplier_id||'',depo:r.warehouse||'Ana Depo',date:r.created_at?r.created_at.replace('T',' ').slice(0,16):nowStr(),note:r.note||''}; }
-
 function gp(id){return products.find(x=>x.id===id)}
 function gs(id){return suppliers.find(x=>x.id===id)}
 function nowStr(){const d=new Date();return`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`}
 function p2(n){return String(n).padStart(2,'0')}
-function fdt(s){try{const[d,t]=s.split(' ');return d.split('-').reverse().join('.')+' '+t}catch{return s}}
+function fdt(s){const[d,t]=s.split(' ');return d.split('-').reverse().join('.')+' '+t}
 function uid(){return Date.now().toString(36).toUpperCase()}
 
 function stockSt(p){
@@ -738,21 +781,9 @@ function stockSt(p){
 function bclr(p){const r=p.stok/p.min;return r<0.4?'#ef4444':r<=1?'#f59e0b':'#10b981'}
 
 // ============================================================
-// RENDER ALL — Supabase'den veri çek
+// RENDER ALL
 // ============================================================
-async function renderAll(){
-  showLoading('Veriler yükleniyor...');
-  try {
-    const [supData, prodData, movData] = await Promise.all([
-      sbFetch('suppliers','GET',null,'?order=created_at.desc'),
-      sbFetch('products','GET',null,'?order=created_at.desc'),
-      sbFetch('movements','GET',null,'?order=created_at.desc&limit=100'),
-    ]);
-    if(supData) suppliers = supData.map(mapSupplier);
-    if(prodData) products = prodData.map(mapProduct);
-    if(movData) movements = movData.map(mapMovement);
-  } catch(e){ console.error(e); showToast('❌','Bağlantı hatası!'); }
-  hideLoading();
+function renderAll(){
   updateGreet();renderStats();renderDashMov();
   renderProds();renderMovFull();renderSuppliers();renderAlerts();
   fillSelects();
@@ -974,7 +1005,7 @@ function qMov(pid,type){
 // ============================================================
 // SAVE: ÜRÜN
 // ============================================================
-async function saveProduct(){
+function saveProduct(){
   const name=document.getElementById('uAd').value.trim();
   if(!name){showToast('⚠️','Ürün adı boş olamaz!');return}
   const kat=document.getElementById('uKat').value;
@@ -982,50 +1013,42 @@ async function saveProduct(){
   const min=parseInt(document.getElementById('uMin').value)||10;
   const cost=parseFloat(document.getElementById('uCost').value)||0;
   const sell=parseFloat(document.getElementById('uSell').value)||0;
-  const sid=document.getElementById('uFirma').value||null;
+  const sid=document.getElementById('uFirma').value;
   const depo=document.getElementById('uDepo').value;
   const sku=document.getElementById('uSku').value.trim()||('SKU-'+uid());
 
-  showLoading('Ürün kaydediliyor...');
-  const res = await sbFetch('products','POST',{
-    name, sku, category:kat,
-    cost_price:cost, sell_price:sell,
-    stock:stok, min_stock:min,
-    supplier_id:sid||null,
-    warehouse:depo,
-    emoji:catE[kat]||'📦'
-  });
-  if(res && res[0] && stok>0){
-    await sbFetch('movements','POST',{
-      product_id:res[0].id, type:'In', quantity:stok,
-      supplier_id:sid||null, warehouse:depo, note:'Başlangıç stoğu'
-    });
+  const np={id:'P'+uid(),name,sku,kat,cost,sell,stok,min,sid,depo,e:catE[kat]||'📦'};
+  products.unshift(np);
+
+  if(stok>0){
+    movements.unshift({id:'M'+uid(),pid:np.id,type:'In',qty:stok,sid,depo,date:nowStr(),note:'Başlangıç stoğu'});
   }
+
   closeModal('mUrun');
   ['uAd','uSku','uCost','uSell','uStok','uMin'].forEach(id=>document.getElementById(id).value='');
-  await renderAll();
+  renderAll();
   showToast('✅',`"${name}" ürünü eklendi!`);
 }
 
 // ============================================================
 // SAVE: FİRMA
 // ============================================================
-async function saveFirma(){
+function saveFirma(){
   const name=document.getElementById('fAd').value.trim();
   if(!name){showToast('⚠️','Firma adı boş olamaz!');return}
-  showLoading('Firma kaydediliyor...');
-  await sbFetch('suppliers','POST',{
+  suppliers.push({
+    id:'S'+uid(),
     name,
-    email:document.getElementById('fEmail').value.trim()||null,
-    phone:document.getElementById('fTel').value.trim()||null,
+    email:document.getElementById('fEmail').value.trim(),
+    phone:document.getElementById('fTel').value.trim(),
     country:document.getElementById('fUlke').value,
-    category:document.getElementById('fKat').value,
-    emoji:catSupE[document.getElementById('fKat').value]||'🏢',
-    orders_count:0
+    cat:document.getElementById('fKat').value,
+    e:catSupE[document.getElementById('fKat').value]||'🏢',
+    siparis:0
   });
   closeModal('mFirma');
   ['fAd','fEmail','fTel','fNot'].forEach(id=>document.getElementById(id).value='');
-  await renderAll();
+  renderAll();
   showToast('✅',`"${name}" firması eklendi!`);
   gotoPage('firmalar');
 }
@@ -1033,33 +1056,25 @@ async function saveFirma(){
 // ============================================================
 // SAVE: HAREKET
 // ============================================================
-async function saveMov(){
+function saveMov(){
   const pid=document.getElementById('hUrun').value;
   const qty=parseInt(document.getElementById('hMiktar').value)||0;
   if(!qty||qty<1){showToast('⚠️','Geçerli miktar girin!');return}
   const p=products.find(x=>x.id===pid);
   if(!p){showToast('❌','Ürün bulunamadı!');return}
   if(movType==='Out'&&qty>p.stok){showToast('❌',`Yetersiz stok! Mevcut: ${p.stok}`);return}
-
-  showLoading('Hareket kaydediliyor...');
-  const newStock = movType==='In' ? p.stok+qty : p.stok-qty;
-
-  // Stok miktarını güncelle
-  await sbFetch('products','PATCH',{stock:newStock},`?id=eq.${pid}`);
-  // Hareketi kaydet
-  await sbFetch('movements','POST',{
-    product_id:pid,
-    type:movType,
-    quantity:qty,
-    supplier_id:document.getElementById('hFirma').value||null,
-    warehouse:document.getElementById('hDepo').value,
-    note:document.getElementById('hNot').value||null
+  if(movType==='In')p.stok+=qty;
+  else p.stok-=qty;
+  movements.unshift({
+    id:'M'+uid(),pid,type:movType,qty,
+    sid:document.getElementById('hFirma').value,
+    depo:document.getElementById('hDepo').value,
+    date:nowStr(),note:document.getElementById('hNot').value
   });
-
   closeModal('mHareket');
   document.getElementById('hMiktar').value='';
   document.getElementById('hNot').value='';
-  await renderAll();
+  renderAll();
   showToast(movType==='In'?'📥':'📤',`${p.name}: ${movType==='In'?'+':'-'}${qty} adet`);
 }
 
@@ -1269,17 +1284,335 @@ function saveUyariAyar(){
   showToast('✅','Uyarı ayarları kaydedildi!');
 }
 
-// Service Worker kaydet (PWA için)
-if('serviceWorker' in navigator){
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then(() => console.log('SW kayıtlı ✓'))
-      .catch(e => console.log('SW hatası:', e));
-  });
-}
-
 // INIT
 renderAll();
 </script>
 </body>
 </html>
+<script>
+// ============================================================
+// SUPABASE + AUTH + BARKOD
+// ============================================================
+const SB_URL = 'https://yvtckiciywxmywnupfgb.supabase.co';
+const SB_KEY = 'sb_publishable_ybPJjoGREaFZ_IixCsj3Vw_3wkd1-gO';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+let currentUser = null;
+
+// ============================================================
+// LOADING
+// ============================================================
+function showLoading(msg='Yükleniyor...'){
+  const o=document.getElementById('loadingOverlay');
+  o.style.display='flex';
+  document.getElementById('loadingMsg').textContent=msg;
+}
+function hideLoading(){
+  document.getElementById('loadingOverlay').style.display='none';
+}
+
+// ============================================================
+// AUTH
+// ============================================================
+function switchAuthTab(tab){
+  const isKayit = tab==='kayit';
+  document.getElementById('tabGiris').classList.toggle('active',!isKayit);
+  document.getElementById('tabKayit').classList.toggle('active',isKayit);
+  document.getElementById('passConfirmField').style.display = isKayit?'block':'none';
+  document.getElementById('companyField').style.display = isKayit?'block':'none';
+  document.getElementById('authBtn').textContent = isKayit?'Kayıt Ol':'Giriş Yap';
+  document.getElementById('authSwitch').innerHTML = isKayit
+    ? 'Hesabın var mı? <span style="color:var(--accent);cursor:pointer;font-weight:700" onclick="switchAuthTab(\'giris\')">Giriş Yap</span>'
+    : 'Hesabın yok mu? <span style="color:var(--accent);cursor:pointer;font-weight:700" onclick="switchAuthTab(\'kayit\')">Kayıt Ol</span>';
+  document.getElementById('authErr').style.display='none';
+}
+
+function showAuthErr(msg){
+  const e=document.getElementById('authErr');
+  e.textContent=msg; e.style.display='block';
+}
+
+async function doAuth(){
+  const email=document.getElementById('authEmail').value.trim();
+  const pass=document.getElementById('authPass').value;
+  const isKayit=document.getElementById('tabKayit').classList.contains('active');
+  const btn=document.getElementById('authBtn');
+
+  if(!email||!pass){showAuthErr('E-posta ve şifre gerekli!');return}
+  if(isKayit&&pass.length<6){showAuthErr('Şifre en az 6 karakter olmalı!');return}
+  if(isKayit){
+    const pass2=document.getElementById('authPass2').value;
+    if(pass!==pass2){showAuthErr('Şifreler eşleşmiyor!');return}
+  }
+
+  btn.disabled=true;
+  btn.textContent=isKayit?'Kayıt yapılıyor...':'Giriş yapılıyor...';
+  document.getElementById('authErr').style.display='none';
+
+  try {
+    let result;
+    if(isKayit){
+      result = await sb.auth.signUp({email, password:pass});
+      if(result.error) throw result.error;
+      // Şirket adını kaydet
+      const company=document.getElementById('authCompany').value.trim()||'İşletmem';
+      if(result.data.user){
+        await sb.from('company').insert({
+          name:company, user_id:result.data.user.id
+        });
+      }
+      showAuthErr('✅ Kayıt başarılı! E-postanı doğrula veya giriş yap.');
+      switchAuthTab('giris');
+    } else {
+      result = await sb.auth.signInWithPassword({email, password:pass});
+      if(result.error) throw result.error;
+      currentUser = result.data.user;
+      startApp();
+    }
+  } catch(e){
+    const msgs={
+      'Invalid login credentials':'E-posta veya şifre hatalı!',
+      'Email not confirmed':'E-postanı doğrula!',
+      'User already registered':'Bu e-posta zaten kayıtlı!'
+    };
+    showAuthErr(msgs[e.message]||e.message);
+  }
+  btn.disabled=false;
+  btn.textContent=isKayit?'Kayıt Ol':'Giriş Yap';
+}
+
+function startApp(){
+  document.getElementById('authScreen').style.display='none';
+  renderAll();
+}
+
+async function signOut(){
+  await sb.auth.signOut();
+  currentUser=null;
+  suppliers=[];products=[];movements=[];
+  document.getElementById('authScreen').style.display='flex';
+  showToast('👋','Çıkış yapıldı!');
+}
+
+// ============================================================
+// SUPABASE CRUD — kullanıcıya özel
+// ============================================================
+async function sbGet(table, extra=''){
+  const {data,error} = await sb.from(table).select('*').order('created_at',{ascending:false}).limit(200);
+  if(error){console.error(error);return null}
+  return data;
+}
+
+async function sbPost(table, body){
+  const uid = currentUser?.id;
+  const {data,error} = await sb.from(table).insert({...body, user_id:uid}).select();
+  if(error){console.error(error);return null}
+  return data;
+}
+
+async function sbPatch(table, id, body){
+  const {error} = await sb.from(table).update(body).eq('id',id);
+  if(error){console.error(error);return false}
+  return true;
+}
+
+async function sbDel(table, id){
+  const {error} = await sb.from(table).delete().eq('id',id);
+  if(error){console.error(error);return false}
+  return true;
+}
+
+// Map DB rows to app format
+function mapS(r){return{id:r.id,name:r.name,email:r.email||'',phone:r.phone||'',country:r.country||'Türkiye',cat:r.category||'Diğer',e:r.emoji||'🏢',siparis:r.orders_count||0}}
+function mapP(r){return{id:r.id,name:r.name,sku:r.sku||'',kat:r.category||'Diğer',cost:r.cost_price||0,sell:r.sell_price||0,stok:r.stock||0,min:r.min_stock||10,sid:r.supplier_id||'',depo:r.warehouse||'Ana Depo',e:r.emoji||'📦'}}
+function mapM(r){return{id:r.id,pid:r.product_id,type:r.type,qty:r.quantity,sid:r.supplier_id||'',depo:r.warehouse||'Ana Depo',date:(r.created_at||'').replace('T',' ').slice(0,16),note:r.note||''}}
+
+// Override renderAll with Supabase version
+async function renderAll(){
+  showLoading('Veriler yükleniyor...');
+  try{
+    const [sd,pd,md] = await Promise.all([
+      sbGet('suppliers'), sbGet('products'), sbGet('movements')
+    ]);
+    if(sd) suppliers=sd.map(mapS);
+    if(pd) products=pd.map(mapP);
+    if(md) movements=md.map(mapM);
+  }catch(e){showToast('❌','Bağlantı hatası!')}
+  hideLoading();
+  updateGreet();renderStats();renderDashMov();
+  renderProds();renderMovFull();renderSuppliers();renderAlerts();
+  fillSelects();
+}
+
+// Override save functions
+async function saveProduct(){
+  const name=document.getElementById('uAd').value.trim();
+  if(!name){showToast('⚠️','Ürün adı boş olamaz!');return}
+  const kat=document.getElementById('uKat').value;
+  const stok=parseInt(document.getElementById('uStok').value)||0;
+  const min=parseInt(document.getElementById('uMin').value)||10;
+  const cost=parseFloat(document.getElementById('uCost').value)||0;
+  const sell=parseFloat(document.getElementById('uSell').value)||0;
+  const sid=document.getElementById('uFirma').value||null;
+  const depo=document.getElementById('uDepo').value;
+  const sku=document.getElementById('uSku').value.trim()||('SKU-'+Date.now().toString(36).toUpperCase());
+  showLoading('Kaydediliyor...');
+  const res=await sbPost('products',{name,sku,category:kat,cost_price:cost,sell_price:sell,stock:stok,min_stock:min,supplier_id:sid,warehouse:depo,emoji:catE[kat]||'📦'});
+  if(res&&res[0]&&stok>0){
+    await sbPost('movements',{product_id:res[0].id,type:'In',quantity:stok,supplier_id:sid,warehouse:depo,note:'Başlangıç stoğu'});
+  }
+  closeModal('mUrun');
+  ['uAd','uSku','uCost','uSell','uStok','uMin'].forEach(i=>document.getElementById(i).value='');
+  await renderAll();
+  showToast('✅',`"${name}" eklendi!`);
+}
+
+async function saveFirma(){
+  const name=document.getElementById('fAd').value.trim();
+  if(!name){showToast('⚠️','Firma adı boş olamaz!');return}
+  showLoading('Kaydediliyor...');
+  await sbPost('suppliers',{name,email:document.getElementById('fEmail').value||null,phone:document.getElementById('fTel').value||null,country:document.getElementById('fUlke').value,category:document.getElementById('fKat').value,emoji:catSupE[document.getElementById('fKat').value]||'🏢',orders_count:0});
+  closeModal('mFirma');
+  ['fAd','fEmail','fTel','fNot'].forEach(i=>document.getElementById(i).value='');
+  await renderAll();
+  showToast('✅',`"${name}" eklendi!`);
+  gotoPage('firmalar');
+}
+
+async function saveMov(){
+  const pid=document.getElementById('hUrun').value;
+  const qty=parseInt(document.getElementById('hMiktar').value)||0;
+  if(!qty||qty<1){showToast('⚠️','Geçerli miktar girin!');return}
+  const p=products.find(x=>x.id===pid);
+  if(!p){showToast('❌','Ürün bulunamadı!');return}
+  if(movType==='Out'&&qty>p.stok){showToast('❌',`Yetersiz stok! Mevcut: ${p.stok}`);return}
+  showLoading('Kaydediliyor...');
+  const ns=movType==='In'?p.stok+qty:p.stok-qty;
+  await sbPatch('products',pid,{stock:ns});
+  await sbPost('movements',{product_id:pid,type:movType,quantity:qty,supplier_id:document.getElementById('hFirma').value||null,warehouse:document.getElementById('hDepo').value,note:document.getElementById('hNot').value||null});
+  closeModal('mHareket');
+  document.getElementById('hMiktar').value='';
+  document.getElementById('hNot').value='';
+  await renderAll();
+  showToast(movType==='In'?'📥':'📤',`${p.name}: ${movType==='In'?'+':'-'}${qty}`);
+}
+
+// ============================================================
+// BARKOD OKUYUCU — QuaggaJS
+// ============================================================
+let barcodeTarget=null, barcodeNameTarget=null, barcodeStream=null;
+
+function openBarcode(skuField, nameField){
+  barcodeTarget=skuField;
+  barcodeNameTarget=nameField;
+  document.getElementById('barcodeOverlay').classList.add('open');
+  startCamera();
+}
+
+async function startCamera(){
+  try{
+    barcodeStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    document.getElementById('barcodeVideo').srcObject=barcodeStream;
+    startBarcodeDetection();
+  }catch(e){
+    showToast('❌','Kamera erişimi reddedildi!');
+    closeBarcode();
+  }
+}
+
+function startBarcodeDetection(){
+  const video=document.getElementById('barcodeVideo');
+  const canvas=document.createElement('canvas');
+  const ctx=canvas.getContext('2d');
+  let detected=false;
+
+  const tick=()=>{
+    if(detected||!document.getElementById('barcodeOverlay').classList.contains('open'))return;
+    if(video.readyState===video.HAVE_ENOUGH_DATA){
+      canvas.width=video.videoWidth;
+      canvas.height=video.videoHeight;
+      ctx.drawImage(video,0,0);
+      // BarcodeDetector API (Android Chrome destekler)
+      if('BarcodeDetector' in window){
+        const bd=new BarcodeDetector({formats:['ean_13','ean_8','code_128','code_39','qr_code','upc_a','upc_e']});
+        bd.detect(canvas).then(codes=>{
+          if(codes.length>0&&!detected){
+            detected=true;
+            const code=codes[0].rawValue;
+            onBarcodeDetected(code);
+          }
+        }).catch(()=>{});
+      }
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function onBarcodeDetected(code){
+  if(barcodeTarget) document.getElementById(barcodeTarget).value=code;
+  showToast('✅',`Barkod okundu: ${code}`);
+  closeBarcode();
+  // Veritabanında bu barkodu ara
+  const existing=products.find(p=>p.sku===code);
+  if(existing){
+    // Hareket modalına yönlendir
+    closeModal('mUrun');
+    qMov(existing.id,'In');
+    showToast('📦',`${existing.name} bulundu!`);
+  }
+}
+
+function closeBarcode(){
+  document.getElementById('barcodeOverlay').classList.remove('open');
+  if(barcodeStream){barcodeStream.getTracks().forEach(t=>t.stop());barcodeStream=null;}
+}
+
+// Hareket modalında da barkod butonu
+function openBarcodeForMov(){
+  barcodeTarget=null;
+  barcodeNameTarget=null;
+  document.getElementById('barcodeOverlay').classList.add('open');
+  document.getElementById('barcodeTitle').textContent='Ürün Barkodunu Okut';
+  const origDetect=onBarcodeDetected;
+  window._barcodeMovMode=true;
+  startCamera();
+}
+
+// Çıkış butonunu profil sayfasına bağla
+document.querySelector('.mitem:last-child')?.addEventListener('click',signOut);
+
+// Enter tuşu ile giriş
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&document.getElementById('authScreen').style.display!=='none') doAuth();
+});
+
+// ============================================================
+// BAŞLATMA — Auth kontrol et
+// ============================================================
+(async()=>{
+  showLoading('Başlatılıyor...');
+  const {data:{session}} = await sb.auth.getSession();
+  hideLoading();
+  if(session){
+    currentUser=session.user;
+    startApp();
+  } else {
+    document.getElementById('authScreen').style.display='flex';
+  }
+  // Auth değişikliklerini dinle
+  sb.auth.onAuthStateChange((event,session)=>{
+    if(event==='SIGNED_IN'&&session){
+      currentUser=session.user;
+      startApp();
+    } else if(event==='SIGNED_OUT'){
+      document.getElementById('authScreen').style.display='flex';
+    }
+  });
+})();
+
+// Service Worker
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
+</script>
